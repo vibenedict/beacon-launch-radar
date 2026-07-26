@@ -5,6 +5,7 @@ import {
   num, bytes, ago, freshTxt, freshC, rid,
   agentConfidence, agentDecision,
 } from './beacon';
+import { LIVE, fetchLiveAssets } from './datahub';
 
 // Component props mirror the design component's `data-props`.
 const ACCENT = '#9184d9';
@@ -130,9 +131,33 @@ export default function App() {
     toastMsg(next ? 'Agent armed · auto-governance live' : 'Agent disarmed');
   };
 
+  // Live poll: pull recent assets from the DataHub proxy and merge new ones in.
+  const pollLive = async () => {
+    if (ref.current.paused) return;
+    const live = await fetchLiveAssets();
+    if (!live || !live.length) return;
+    const known = new Set(ref.current.feed.map((x) => x.id));
+    const fresh = live.filter((a) => !known.has(a.id)).map((a) => ({ ...a, fresh0: true }));
+    if (!fresh.length) return;
+    setState((s) => ({
+      feed: [...fresh, ...s.feed.map((x) => x.fresh0 ? { ...x, fresh0: false } : x)].slice(0, 42),
+      signals: s.signals + fresh.length,
+      selectedId: s.selectedId || fresh[0].id,
+    }));
+    fresh.forEach((a) => evalAgent(a));
+  };
+
   // ── timers (componentDidMount / componentWillUnmount) ──────────────────────
   useEffect(() => {
-    const timer = setInterval(tick, FEED_INTERVAL_MS);
+    // In live mode, drive the feed from DataHub; otherwise generate mock assets.
+    let timer: ReturnType<typeof setInterval>;
+    if (LIVE) {
+      setState({ feed: [], selectedId: null, signals: 0 });
+      timer = setInterval(pollLive, FEED_INTERVAL_MS);
+      void pollLive();
+    } else {
+      timer = setInterval(tick, FEED_INTERVAL_MS);
+    }
     const lt = setInterval(() => setState({ latency: Math.round(420 + Math.random() * 520) }), 950);
     const ct = setInterval(() => setState((s) => {
       const l = s.series[s.series.length - 1] || 1;
