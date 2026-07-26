@@ -1,0 +1,31 @@
+/* App-level globals — the semantic status ramp + shell chrome from the
+   original Beacon prototype's <style> block. */
+:root {
+  --ok: #79c2a4;
+  --warn: #d8b877;
+  --risk: #d98a8a;
+  --ok-bg: rgba(121, 194, 164, .14);
+  --warn-bg: rgba(216, 184, 119, .15);
+  --risk-bg: rgba(217, 138, 138, .15);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+#root { height: 100%; }
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--color-neutral-800); border-radius: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+@keyframes flashIn { 0% { background: var(--color-accent-900); } 100% { background: transparent; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes toastIn { 0% { opacity: 0; transform: translate(-50%, 8px); } 100% { opacity: 1; transform: translate(-50%, 0); } }
