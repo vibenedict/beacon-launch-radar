@@ -92,9 +92,11 @@ export default function App() {
     if (d.action === 'QUARANTINE') {
       reason = 'trust ' + a.score + ' · ' + (a.factors.find((x) => x.status === 'fail')?.detail || 'multiple failures') + ' · incident opened';
       cost = applyAction(a, 'QUARANTINE');
+      if (LIVE && a.id.startsWith('urn:')) void writeGovernance(a.id, 'QUARANTINE');
     } else if (d.action === 'CERTIFY') {
       reason = 'trust ' + a.score + ' · confidence ' + conf + ' · certified + tagged';
       cost = applyAction(a, 'CERTIFY');
+      if (LIVE && a.id.startsWith('urn:')) void writeGovernance(a.id, 'CERTIFY');
     } else if (d.why === 'quar-budget') {
       reason = 'action budget exhausted — needs human review';
     } else if (d.why === 'cert-budget') {
@@ -167,6 +169,18 @@ export default function App() {
     return () => { [timer, lt, ct].forEach(clearInterval); clearTimeout(toastTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live mode: sample metadata is static, so arming the agent evaluates the
+  // assets already in the feed once (mock mode gets a steady stream instead).
+  const sweptRef = useRef(false);
+  useEffect(() => {
+    if (LIVE && state.agent.armed && state.conn.connected && !sweptRef.current) {
+      sweptRef.current = true;
+      ref.current.feed.forEach((a) => { if (a.id.startsWith('urn:')) evalAgent(a); });
+    }
+    if (!state.agent.armed) sweptRef.current = false; // re-sweep on the next arm
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.agent.armed, state.conn.connected]);
 
   // ── view model (renderVals) ────────────────────────────────────────────────
   const v = renderVals();
