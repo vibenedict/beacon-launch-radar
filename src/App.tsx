@@ -5,6 +5,7 @@ import {
   num, bytes, ago, freshTxt, freshC, rid,
   agentConfidence, agentDecision,
 } from './beacon';
+import { LIVE, fetchLiveAssets, writeGovernance } from './datahub';
 
 // Component props mirror the design component's `data-props`.
 const ACCENT = '#9184d9';
@@ -91,9 +92,11 @@ export default function App() {
     if (d.action === 'QUARANTINE') {
       reason = 'trust ' + a.score + ' · ' + (a.factors.find((x) => x.status === 'fail')?.detail || 'multiple failures') + ' · incident opened';
       cost = applyAction(a, 'QUARANTINE');
+      if (LIVE && a.id.startsWith('urn:')) void writeGovernance(a.id, 'QUARANTINE');
     } else if (d.action === 'CERTIFY') {
       reason = 'trust ' + a.score + ' · confidence ' + conf + ' · certified + tagged';
       cost = applyAction(a, 'CERTIFY');
+      if (LIVE && a.id.startsWith('urn:')) void writeGovernance(a.id, 'CERTIFY');
     } else if (d.why === 'quar-budget') {
       reason = 'action budget exhausted — needs human review';
     } else if (d.why === 'cert-budget') {
@@ -130,9 +133,33 @@ export default function App() {
     toastMsg(next ? 'Agent armed · auto-governance live' : 'Agent disarmed');
   };
 
+  // Live poll: pull recent assets from the DataHub proxy and merge new ones in.
+  const pollLive = async () => {
+    if (ref.current.paused) return;
+    const live = await fetchLiveAssets();
+    if (!live || !live.length) return;
+    const known = new Set(ref.current.feed.map((x) => x.id));
+    const fresh = live.filter((a) => !known.has(a.id)).map((a) => ({ ...a, fresh0: true }));
+    if (!fresh.length) return;
+    setState((s) => ({
+      feed: [...fresh, ...s.feed.map((x) => x.fresh0 ? { ...x, fresh0: false } : x)].slice(0, 42),
+      signals: s.signals + fresh.length,
+      selectedId: s.selectedId || fresh[0].id,
+    }));
+    fresh.forEach((a) => evalAgent(a));
+  };
+
   // ── timers (componentDidMount / componentWillUnmount) ──────────────────────
   useEffect(() => {
-    const timer = setInterval(tick, FEED_INTERVAL_MS);
+    // In live mode, drive the feed from DataHub; otherwise generate mock assets.
+    let timer: ReturnType<typeof setInterval>;
+    if (LIVE) {
+      setState({ feed: [], selectedId: null, signals: 0 });
+      timer = setInterval(pollLive, FEED_INTERVAL_MS);
+      void pollLive();
+    } else {
+      timer = setInterval(tick, FEED_INTERVAL_MS);
+    }
     const lt = setInterval(() => setState({ latency: Math.round(420 + Math.random() * 520) }), 950);
     const ct = setInterval(() => setState((s) => {
       const l = s.series[s.series.length - 1] || 1;
@@ -142,6 +169,18 @@ export default function App() {
     return () => { [timer, lt, ct].forEach(clearInterval); clearTimeout(toastTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Live mode: sample metadata is static, so arming the agent evaluates the
+  // assets already in the feed once (mock mode gets a steady stream instead).
+  const sweptRef = useRef(false);
+  useEffect(() => {
+    if (LIVE && state.agent.armed && state.conn.connected && !sweptRef.current) {
+      sweptRef.current = true;
+      ref.current.feed.forEach((a) => { if (a.id.startsWith('urn:')) evalAgent(a); });
+    }
+    if (!state.agent.armed) sweptRef.current = false; // re-sweep on the next arm
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.agent.armed, state.conn.connected]);
 
   // ── view model (renderVals) ────────────────────────────────────────────────
   const v = renderVals();
@@ -199,7 +238,19 @@ export default function App() {
         ],
         factors: s.factors.map((f) => ({ label: f.label, detail: f.detail, pts: f.pts, max: f.max, c: fc(f.status), tagBg: fcbg(f.status), statusLabel: f.status === 'pass' ? 'PASS' : f.status === 'warn' ? 'WARN' : 'FAIL' })),
         watchLabel: watched ? '★ Watching' : '☆ Watch', watchExtra: watched ? 'color:var(--color-accent);border-color:var(--color-accent)' : '',
-        onCertify: () => { if (!st.conn.connected) { setState({ connModal: true }); toastMsg('Connect DataHub to write back'); return; } if (st.budget < 1) { toastMsg('Action budget exhausted'); return; } applyAction(s, 'CERTIFY'); toastMsg('Certified ' + s.name + ' in DataHub'); },
+        onCertify: () => {
+          // Live mode: write the certification back to the real DataHub graph.
+          if (LIVE && s.id.startsWith('urn:')) {
+            applyAction(s, 'CERTIFY');
+            toastMsg('Certifying ' + s.name + ' in DataHub…');
+            writeGovernance(s.id, 'CERTIFY').then((res) => toastMsg(res.ok ? '✓ Certified ' + s.name + ' in DataHub' : 'Write-back failed · ' + res.error));
+            return;
+          }
+          // Mock mode: gated by the in-app connect + action budget.
+          if (!st.conn.connected) { setState({ connModal: true }); toastMsg('Connect DataHub to write back'); return; }
+          if (st.budget < 1) { toastMsg('Action budget exhausted'); return; }
+          applyAction(s, 'CERTIFY'); toastMsg('Certified ' + s.name + ' in DataHub');
+        },
         onWatch: () => { const w = { ...st.watch }; if (w[s.id]) { delete w[s.id]; toastMsg(s.name + ' unpinned'); } else { w[s.id] = true; toastMsg(s.name + ' added to watchlist'); } setState({ watch: w }); },
         onNotify: () => toastMsg('Notified ' + s.owner + ' via Slack'),
         onExplorer: () => toastMsg('Opening ' + s.name + ' in DataHub…'),
