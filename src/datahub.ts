@@ -19,3 +19,22 @@ export async function fetchLiveAssets(): Promise<Asset[] | null> {
     return null;
   }
 }
+
+// Write a governance decision back to DataHub (tags the asset; quarantine also
+// deprecates it). Returns ok:false with a message on failure so the UI can toast.
+export async function writeGovernance(
+  urn: string,
+  action: 'CERTIFY' | 'QUARANTINE',
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const r = await fetch('/api/certify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urn, action }),
+    });
+    const j = await r.json().catch(() => ({}));
+    return r.ok ? { ok: true } : { ok: false, error: j?.error || `HTTP ${r.status}` };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e) };
+  }
+}

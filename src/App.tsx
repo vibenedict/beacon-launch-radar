@@ -5,7 +5,7 @@ import {
   num, bytes, ago, freshTxt, freshC, rid,
   agentConfidence, agentDecision,
 } from './beacon';
-import { LIVE, fetchLiveAssets } from './datahub';
+import { LIVE, fetchLiveAssets, writeGovernance } from './datahub';
 
 // Component props mirror the design component's `data-props`.
 const ACCENT = '#9184d9';
@@ -224,7 +224,19 @@ export default function App() {
         ],
         factors: s.factors.map((f) => ({ label: f.label, detail: f.detail, pts: f.pts, max: f.max, c: fc(f.status), tagBg: fcbg(f.status), statusLabel: f.status === 'pass' ? 'PASS' : f.status === 'warn' ? 'WARN' : 'FAIL' })),
         watchLabel: watched ? '★ Watching' : '☆ Watch', watchExtra: watched ? 'color:var(--color-accent);border-color:var(--color-accent)' : '',
-        onCertify: () => { if (!st.conn.connected) { setState({ connModal: true }); toastMsg('Connect DataHub to write back'); return; } if (st.budget < 1) { toastMsg('Action budget exhausted'); return; } applyAction(s, 'CERTIFY'); toastMsg('Certified ' + s.name + ' in DataHub'); },
+        onCertify: () => {
+          // Live mode: write the certification back to the real DataHub graph.
+          if (LIVE && s.id.startsWith('urn:')) {
+            applyAction(s, 'CERTIFY');
+            toastMsg('Certifying ' + s.name + ' in DataHub…');
+            writeGovernance(s.id, 'CERTIFY').then((res) => toastMsg(res.ok ? '✓ Certified ' + s.name + ' in DataHub' : 'Write-back failed · ' + res.error));
+            return;
+          }
+          // Mock mode: gated by the in-app connect + action budget.
+          if (!st.conn.connected) { setState({ connModal: true }); toastMsg('Connect DataHub to write back'); return; }
+          if (st.budget < 1) { toastMsg('Action budget exhausted'); return; }
+          applyAction(s, 'CERTIFY'); toastMsg('Certified ' + s.name + ' in DataHub');
+        },
         onWatch: () => { const w = { ...st.watch }; if (w[s.id]) { delete w[s.id]; toastMsg(s.name + ' unpinned'); } else { w[s.id] = true; toastMsg(s.name + ' added to watchlist'); } setState({ watch: w }); },
         onNotify: () => toastMsg('Notified ' + s.owner + ' via Slack'),
         onExplorer: () => toastMsg('Opening ' + s.name + ' in DataHub…'),
