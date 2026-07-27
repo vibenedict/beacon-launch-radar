@@ -43,16 +43,16 @@ const QUERY = /* GraphQL */ `
             platform { name }
             properties { name description lastModified { time } }
             editableProperties { description }
-            ownership { owners { owner { urn } ownershipType { info { name } } } }
+            ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } ownershipType { info { name } } } }
             glossaryTerms { terms { term { urn } } }
             tags { tags { tag { urn } } }
             schemaMetadata { fields { fieldPath description } }
             upstream: lineage(input: { direction: UPSTREAM, start: 0, count: 1 }) { total }
             downstream: lineage(input: { direction: DOWNSTREAM, start: 0, count: 1 }) { total }
           }
-          ... on Dashboard { properties { name description lastModified { time } } platform { name } ownership { owners { owner { urn } } } }
-          ... on MLModel { name properties { description } platform { name } ownership { owners { owner { urn } } } }
-          ... on DataJob { jobId properties { name description } ownership { owners { owner { urn } } } }
+          ... on Dashboard { properties { name description lastModified { time } } platform { name } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
+          ... on MLModel { name properties { description } platform { name } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
+          ... on DataJob { jobId properties { name description } ownership { owners { owner { ... on CorpUser { urn } ... on CorpGroup { urn } } } } }
         }
       }
     }
@@ -118,18 +118,20 @@ function mapEntity(e: any): any {
 
 export default async function handler(req: any, res: any) {
   const GMS = process.env.DATAHUB_GMS_URL;
-  const TOKEN = process.env.DATAHUB_TOKEN;
-  if (!GMS || !TOKEN) {
+  const TOKEN = process.env.DATAHUB_TOKEN; // optional: local quickstart runs with auth disabled
+  if (!GMS) {
     res.status(501).json({
       error: 'DataHub not configured',
-      hint: 'Set DATAHUB_GMS_URL and DATAHUB_TOKEN in the Vercel project env to enable live mode. The app uses mock data until then.',
+      hint: 'Set DATAHUB_GMS_URL (and DATAHUB_TOKEN for authenticated instances) to enable live mode. The app uses mock data until then.',
     });
     return;
   }
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
     const r = await fetch(`${GMS.replace(/\/$/, '')}/api/graphql`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+      headers,
       body: JSON.stringify({ query: QUERY, variables: { count: 25 } }),
     });
     if (!r.ok) { res.status(502).json({ error: `DataHub responded ${r.status}` }); return; }
