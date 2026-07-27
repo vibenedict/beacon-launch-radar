@@ -1,0 +1,11 @@
+node_modules/
+npm-debug.log
+.git/
+.gitignore
+.env
+.env.local
+.DS_Store
+.claude/
+# NOTE: vite.config.ts (the @vitejs/plugin-react setup) and tsconfig.json are
+# required by `npm run build` in the builder stage — excluding them makes Vite
+# fall back to the classic JSX runtime and ship a broken bundle.
